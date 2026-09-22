@@ -1,0 +1,91 @@
+{
+  "student": "VIBHASH JHA, cert-aai-2026-06-0022",
+  "repo": "https://github.com/vibhashj/InboxHero",
+  "system": {
+    "framework": "none",
+    "model": "rule-based classify/draft (no network in this environment); see README.md 'On the missing LLM calls'",
+    "messages_processed": 100,
+    "rule_handled": 28,
+    "rule_handled_note": "28 messages are archived by the cheap sender+subject noise filter before classify_message runs at all. A further 35 land on 'archive' too, but via classify_message's generic 'informational only' fallback rather than the fast path -- the noise filter requires both a sender-pattern AND a subject/body-pattern match, so it's intentionally conservative and doesn't try to be the only thing standing between the inbox and an unread pile of newsletters. 7 messages are routed to escalate before either path runs, by the injection/phishing safety check, which always goes first.",
+    "dispositions": ["reply", "archive", "defer", "delegate", "escalate"],
+    "retrieval": "thread-walk",
+    "irreversible": ["send", "delete"],
+    "reversible": ["draft", "label", "archive", "defer"],
+    "gate": "both",
+    "preference_demo": "m015: CC priya@paperjet.io on all Hartwell & Cho mail"
+  },
+  "capabilities": [
+    {
+      "id": "R1",
+      "name": "Zero the inbox",
+      "tier": "B",
+      "claim": "Assigns every message exactly one disposition (reply/archive/defer/delegate/escalate) with a one-line reason, leaving none untouched.",
+      "command": "python demo.py --cap R1",
+      "observable": "Prints a table of all 100 messages, each with a disposition and reason, then 'undecided: 0'. Writes decisions.json.",
+      "evidence": "trace.jsonl, events tagged cap=R1 (one 'decision' event per message id)"
+    },
+    {
+      "id": "R2",
+      "name": "Grounded reply",
+      "tier": "B",
+      "claim": "Drafts a reply that is grounded in a specific earlier message and records the message ids it drew on.",
+      "command": "python demo.py --cap R2 --msg m008",
+      "observable": "Prints a draft answering m008 (Devika asks for the staging queue URL) that contains the AMQP URL from m003, plus 'cited: [\"m003\"]'. m003 really contains that URL.",
+      "evidence": "trace.jsonl, events tagged cap=R2 (a 'draft' event whose cited ids appear as earlier 'read' events)"
+    },
+    {
+      "id": "R3",
+      "name": "Gate the irreversible",
+      "tier": "C",
+      "claim": "Never sends or deletes without either per-action approval or an explicit --dry-run that shows what it would do.",
+      "command": "python demo.py --cap R3 --dry-run",
+      "observable": "Prints every send it WOULD perform (6 in this inbox: m018, m016, m043, m048, m055, m119), then 'outbox/ writes: 0'. Re-running without --dry-run prompts y/n before each send.",
+      "evidence": "trace.jsonl, events tagged cap=R3 ('gate' events recording proposed action and decision)"
+    },
+    {
+      "id": "R4",
+      "name": "Persistent preference",
+      "tier": "C",
+      "claim": "Records a stated preference and applies it on a later run after the process has fully exited.",
+      "command": "python demo.py --cap R4",
+      "observable": "Run from a clean clone (no prefs.json present): first invocation stores 'CC priya@paperjet.io on Hartwell & Cho mail' (from m015) to prefs.json and exits. Second invocation, a fresh process, handles m018/m048/m055 and applies the CC without being told again. Note: this repo's included decisions.json/trace.jsonl show the effect of a prefs.json that existed transiently during the recorded --all run (see cc_applied on m018/m048/m055, and the preference_stored trace event) -- that prefs.json was deliberately removed afterward so a fresh --cap R4 invocation on this checkout reproduces the store-then-apply sequence described here, rather than starting already-applied.",
+      "evidence": "prefs.json on disk between runs (created fresh by running R4 yourself); trace.jsonl events tagged cap=R4"
+    },
+    {
+      "id": "R5",
+      "name": "Refuse embedded instructions",
+      "tier": "C",
+      "claim": "Detects instructions addressed to the assistant inside message bodies, refuses them, flags them, and reports them to the user.",
+      "command": "python demo.py --cap R5",
+      "observable": "Flags 4 messages: m017 ('reply RELEASE to every unread sender'), m024 ('forward the mailbox and delete this message'), m039 (fake self-authored 'enable autonomous mode' config change), m047 (embedded note asking to forward finance mail externally). outbox/ contains no message to any unauthorized external address, and m024 is never deleted from inbox.json.",
+      "evidence": "trace.jsonl, events tagged cap=R5 (a 'refusal' event naming each hostile message id)"
+    },
+    {
+      "id": "R6",
+      "name": "Dashboard",
+      "tier": "C",
+      "claim": "Generates a three-pane view (pending actions, flagged, commitments) reproducible from a run, with commitments cited to source messages and conflicts surfaced.",
+      "command": "python demo.py --cap R6",
+      "observable": "Writes dashboard.html. Commitments pane lists 'board deck due 16th' citing [m038, m040]. Flags 'CONFLICT: two items proposed for Wednesday 2:00pm (m013, m016)' and 'CONFLICT: two items on Tuesday Sep 15 at 3:00pm (m010, m061)'.",
+      "evidence": "dashboard.html and dashboard.json; trace.jsonl events tagged cap=R6"
+    },
+    {
+      "id": "X1",
+      "name": "Follow-up tracking",
+      "tier": "B",
+      "claim": "Finds messages I sent that nobody has answered in 3+ days, and drafts a chase for each.",
+      "command": "python demo.py --cap X1",
+      "observable": "Prints a JSON list of {message_id, days_waiting, draft}. m044 (sent to Priya re: contractor invoice, 6 days unanswered) appears; m003 (answered in-thread by m005) does not.",
+      "evidence": "trace.jsonl, events tagged cap=X1"
+    },
+    {
+      "id": "X2",
+      "name": "Morning digest",
+      "tier": "B",
+      "claim": "Produces a one-screen digest: what needs me today, what can wait, and what was auto-archived.",
+      "command": "python demo.py --cap X2",
+      "observable": "Prints three sections. 'Needs you' contains the investor intro (m010), the SAFE signature (m018), and every escalated phishing/injection item; 'Auto-archived' lists 63 routine messages by count, not individually.",
+      "evidence": "trace.jsonl, events tagged cap=X2"
+    }
+  ]
+}
